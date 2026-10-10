@@ -222,7 +222,17 @@ class RAGPipeline:
         }
 
     def _generate_gemini(self, query: str, context: str, is_tamil: bool) -> Optional[str]:
-        """Calls Google Gemini API using the provided API key with automatic model fallback."""
+        """Calls Google Gemini using the upgraded gemini_model module."""
+        try:
+            from gemini_model import generate_answer
+            lang = "Tamil" if is_tamil else "English"
+            ans = generate_answer(query, context, language=lang)
+            if ans and ans.strip() and ans.strip() != "மன்னிக்கவும், தற்போது பதிலை உருவாக்க முடியவில்லை.":
+                logger.info("Successfully generated response using gemini_model.")
+                return ans.strip()
+        except Exception as e:
+            logger.warning(f"Error calling gemini_model.generate_answer: {e}")
+
         if not GEMINI_API_KEY:
             return None
 
