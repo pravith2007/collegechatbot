@@ -69,11 +69,15 @@ MAX_PAGES_PER_SYNC = int(os.getenv("MAX_PAGES_PER_SYNC", "30"))
 DEFAULT_SYNC_INTERVAL_MINUTES = int(os.getenv("DEFAULT_SYNC_INTERVAL_MINUTES", "60"))
 
 # LLM & Embedding Config
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+GEMINI_FALLBACK_MODELS = ["gemini-3.5-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-pro-latest"]
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("VITE_OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 
 # RAG Chunking
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "700"))

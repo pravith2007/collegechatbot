@@ -10,6 +10,9 @@ import requests
 
 from config import (
     CHROMA_DIR,
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
+    GEMINI_FALLBACK_MODELS,
     OPENAI_API_KEY,
     OPENAI_MODEL,
     OLLAMA_BASE_URL,
@@ -136,9 +139,9 @@ class RAGPipeline:
                         "page_title": meta.get("page_title", "Kongu Engineering College")
                     })
 
-            # Filter out chunks that exceed cosine distance threshold (distance > 1.35 indicates poor relevance)
-            valid_hits = [h for h in hits if h["distance"] <= 1.35]
-            return valid_hits if valid_hits else hits[:1] if (hits and hits[0]["distance"] <= 1.45) else []
+            # Filter out chunks that exceed cosine distance threshold
+            valid_hits = [h for h in hits if h["distance"] <= 1.55]
+            return valid_hits if valid_hits else hits[:2] if (hits and hits[0]["distance"] <= 1.70) else []
         except Exception as e:
             logger.error(f"Error querying ChromaDB: {e}")
             return []
@@ -199,12 +202,15 @@ class RAGPipeline:
 
         context_str = "\n\n---\n\n".join(context_blocks)
 
-        # 1. Try local Ollama model
-        answer = self._generate_ollama(query_text, context_str, is_tamil)
-        # 2. Try OpenAI if configured
+        # 1. Try Google Gemini API (Primary LLM)
+        answer = self._generate_gemini(query_text, context_str, is_tamil)
+        # 2. Try local Ollama model (qwen2.5:3b / llama3)
+        if not answer:
+            answer = self._generate_ollama(query_text, context_str, is_tamil)
+        # 3. Try OpenAI if configured
         if not answer:
             answer = self._generate_openai(query_text, context_str, is_tamil)
-        # 3. Use grounded local synthesizer
+        # 4. Use grounded local synthesizer
         if not answer:
             answer = self._generate_local_grounded(query_text, hits, is_tamil)
 
@@ -214,6 +220,79 @@ class RAGPipeline:
             "is_tamil": is_tamil,
             "confidence": hits[0]["similarity_score"] if hits else 0.5
         }
+
+    def _generate_gemini(self, query: str, context: str, is_tamil: bool) -> Optional[str]:
+        """Calls Google Gemini API using the provided API key with automatic model fallback."""
+        if not GEMINI_API_KEY:
+            return None
+
+        if is_tamil:
+            lang_instruction = (
+                "பயனர் தமிழில் அல்லது Tanglish-ல் கேட்டுள்ளார். "
+                "கொங்கு பொறியியல் கல்லூரியின் (KEC) அதிகாரப்பூர்வ AI உதவியாளராக "
+                "முழுமையான, மரியாதையான மற்றும் தெளிவான தமிழில் (fluent Tamil) பதிலளிக்கவும். "
+                "முக்கியமான தொழில்நுட்ப பெயர்கள் மற்றும் எண்களை (எ.கா: B.E/B.Tech, கட்டணம், 04257-226688) தெளிவாக குறிப்பிடவும்."
+            )
+        else:
+            lang_instruction = (
+                "The user asked in English. Respond as the official AI Assistant for Kongu Engineering College (KEC) "
+                "in clear, professional, friendly, and structured English."
+            )
+
+        system_instruction = (
+            "You are the official Bilingual AI Assistant for Kongu Engineering College (KEC), Perundurai, Erode, Tamil Nadu.\n"
+            "CRITICAL INSTRUCTIONS:\n"
+            "1. Base your answer strictly and accurately on the provided verified College Evidence below. Never fabricate cutoff marks, courses, or fake fees.\n"
+            "2. If contact numbers (e.g., 04257-226688 / 04257-226600), email (info@kongu.edu), official website links (https://kongu.ac.in/), or Google Maps location links are in the evidence, preserve and highlight them.\n"
+            "3. Structure your response cleanly using bullet points, bold headers, and appropriate emojis (🎓, 🏛️, 📍, 📞, 🌐, 💼, 🏆).\n"
+            "4. Be polite, direct, concise, and helpful to students, parents, and visitors.\n"
+            f"{lang_instruction}"
+        )
+
+        prompt = (
+            f"{system_instruction}\n\n"
+            f"--- VERIFIED COLLEGE EVIDENCE ---\n"
+            f"{context}\n\n"
+            f"--- USER QUESTION ---\n"
+            f"{query}\n\n"
+            f"--- OFFICIAL ASSISTANT ANSWER ---"
+        )
+
+        candidate_models = [GEMINI_MODEL] + [m for m in GEMINI_FALLBACK_MODELS if m != GEMINI_MODEL]
+
+        for model in candidate_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+            payload = {
+                "contents": [
+                    {
+                        "parts": [{"text": prompt}]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "maxOutputTokens": 1024
+                }
+            }
+            try:
+                res = requests.post(url, json=payload, timeout=12)
+                if res.status_code == 200:
+                    data = res.json()
+                    candidates = data.get("candidates", [])
+                    if candidates and "content" in candidates[0] and "parts" in candidates[0]["content"]:
+                        text = candidates[0]["content"]["parts"][0].get("text", "").strip()
+                        if text:
+                            logger.info(f"Successfully generated response with Gemini ({model}).")
+                            return text
+                elif res.status_code in (429, 503):
+                    logger.warning(f"Gemini model {model} returned {res.status_code} (busy/rate limit), trying next fallback...")
+                    continue
+                else:
+                    logger.warning(f"Gemini API returned status {res.status_code} on {model}: {res.text[:150]}")
+            except Exception as e:
+                logger.warning(f"Error calling Gemini model {model}: {e}")
+                continue
+
+        return None
 
     def _generate_ollama(self, query: str, context: str, is_tamil: bool) -> Optional[str]:
         """Calls local Ollama model if running."""
