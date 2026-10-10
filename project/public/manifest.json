@@ -1,0 +1,18 @@
+{
+  "name": "KEC AI Assistant",
+  "short_name": "KEC AI",
+  "description": "Official Bilingual AI Assistant for Kongu Engineering College",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
